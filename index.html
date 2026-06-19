@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>BJS SQL-Konsole | CFG Wuppertal</title>
+    <!-- Wir nutzen das CDN, das funktioniert in jedem Browser mit Internet -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: #f4f7f9; }
+        .navbar { background: #003366; color: white; padding: 15px 30px; font-weight: bold; }
+        .container { max-width: 1100px; margin: 20px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .status-area { padding: 10px; margin-bottom: 20px; border-radius: 4px; font-weight: bold; }
+        .loading { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .ready { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error-msg { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; padding: 15px; border-left: 5px solid #e74c3c; font-family: monospace; margin-top: 20px;}
+        .schema-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: #ebf2f7; padding: 15px; border-radius: 6px; font-size: 0.8em; margin-bottom: 20px; }
+        textarea { width: 100%; height: 120px; font-family: 'Consolas', monospace; font-size: 16px; padding: 15px; border: 2px solid #ced4da; border-radius: 6px; box-sizing: border-box; }
+        button { padding: 12px 25px; font-size: 16px; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+        .btn-run { background: #27ae60; color: white; }
+        table { width: 100%; border-collapse: collapse; margin-top: 25px; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background: #34495e; color: white; }
+    </style>
+</head>
+<body>
+
+<div class="navbar">CFG Wuppertal - Management-Konsole: Bundesjugendspiele</div>
+
+<div class="container">
+    <div id="statusIndicator" class="status-area loading">
+        ⏳ Datenbank-Engine wird geladen... (Internetverbindung erforderlich)
+    </div>
+
+    <div class="schema-info">
+        <div><strong>Personen</strong>(StartNr, Vorname, Nachname, Klasse, Geschlecht, Alter)</div>
+        <div><strong>Notfallkontakte</strong>(StartNr, Vorname, Nachname, Telefonnummer)</div>
+        <div><strong>Weitwurf</strong>(StartNr, Wurf_1, Wurf_2, Wurf_3, Punkte)</div>
+        <div><strong>Weitsprung</strong>(StartNr, Sprung_1, Sprung_2, Sprung_3, Punkte)</div>
+        <div><strong>Sprint</strong>(StartNr, Laenge, Zeit, Punkte)</div>
+        <div><strong>Langlauf</strong>(StartNr, Laenge, Zeit, Punkte)</div>
+    </div>
+
+    <textarea id="sqlInput">SELECT * FROM Personen;</textarea><br>
+    <button class="btn-run" onclick="executeSQL()">▶ Abfrage ausführen</button>
+    <button onclick="resetDatabase()" style="background:#95a5a6; color:white;">🔄 DB Reset</button>
+
+    <div id="errorMessage" class="error-msg" style="display:none;"></div>
+    <div id="tableOutput"></div>
+</div>
+
+<script>
+    let db;
+    let SQL;
+
+    async function init() {
+        const status = document.getElementById('statusIndicator');
+        try {
+            // Wir laden die .wasm vom Server (Cloudflare), um CORS-Fehler lokal zu vermeiden
+            const config = { locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}` }; 
+            SQL = await initSqlJs(config);
+            
+            status.className = "status-area ready";
+            status.innerText = "✅ Datenbank-Engine bereit. Daten wurden geladen.";
+            
+            resetDatabase();
+        } catch (err) {
+            status.className = "status-area error-msg";
+            status.style.display = "block";
+            status.innerHTML = "❌ FEHLER beim Laden der SQL-Engine. Bitte prüfe die Internetverbindung oder nutze Firefox.";
+            console.error(err);
+        }
+    }
+
+    function resetDatabase() {
+        if (!SQL) return;
+        db = new SQL.Database();
+        db.run(`
+            CREATE TABLE Personen (StartNr INT PRIMARY KEY, Vorname TEXT, Nachname TEXT, Klasse TEXT, Geschlecht TEXT, Alter INT);
+            CREATE TABLE Notfallkontakte (StartNr INT PRIMARY KEY, Vorname TEXT, Nachname TEXT, Telefonnummer TEXT);
+            CREATE TABLE Weitwurf (StartNr INT, Wurf_1 REAL, Wurf_2 REAL, Wurf_3 REAL, Punkte INT);
+            CREATE TABLE Weitsprung (StartNr INT, Sprung_1 REAL, Sprung_2 REAL, Sprung_3 REAL, Punkte INT);
+            CREATE TABLE Sprint (StartNr INT, Laenge INT, Zeit REAL, Punkte INT);
+            CREATE TABLE Langlauf (StartNr INT, Laenge INT, Zeit REAL, Punkte INT);
+        `);
+
+        // TEST-DATENSATZ
+        db.run("INSERT INTO Personen VALUES (1001, 'Leon', 'Müller', '6a', 'm', 11);");
+        
+        // --- HIER WERDEN WIR GLEICH DIE 520 INSERTS EINFÜGEN ---
+    }
+
+    function executeSQL() {
+        const output = document.getElementById('tableOutput');
+        const errorBox = document.getElementById('errorMessage');
+        errorBox.style.display = "none";
+
+        // Schutzmaßnahme: Falls db noch nicht geladen ist
+        if (!db) {
+            errorBox.innerText = "Fehler: Die Datenbank ist noch nicht bereit. Bitte warte einen Moment oder lade die Seite neu.";
+            errorBox.style.display = "block";
+            return;
+        }
+
+        const sql = document.getElementById('sqlInput').value;
+        output.innerHTML = "";
+        
+        try {
+            const res = db.exec(sql);
+            if (res.length === 0) {
+                output.innerHTML = "<em>Befehl ausgeführt, aber keine Daten zurückgegeben.</em>";
+                return;
+            }
+            let html = "<table><thead><tr>";
+            res[0].columns.forEach(col => html += `<th>${col}</th>`);
+            html += "</tr></thead><tbody>";
+            res[0].values.forEach(row => {
+                html += "<tr>";
+                row.forEach(val => html += `<td>${val !== null ? val : '<em>NULL</em>'}</td>`);
+                html += "</tr>";
+            });
+            output.innerHTML = html + "</tbody></table>";
+        } catch (err) {
+            errorBox.innerText = "SQL-Fehler: " + err.message;
+            errorBox.style.display = "block";
+        }
+    }
+    init();
+</script>
+</body>
+</html>
